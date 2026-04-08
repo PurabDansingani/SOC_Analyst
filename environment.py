@@ -142,7 +142,7 @@ class SOCEnv:
 
     # --- ACTION EXECUTION ---
     def step(self, action: Action) -> tuple[Observation, Reward]:
-        reward = Reward(score=0.0, done=False, message="", success=False)
+        reward = Reward(score=0.01, done=False, message="", success=False)
         current_score = 0.0
         
         # Execute Tool
