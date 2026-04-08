@@ -142,4 +142,4 @@ soc-openenv/
 
 ## 👤 Author
 
-**Purab Dansingani**
+**Purab Dansingani, Aryan Dalvi, Dhruv Jain**
