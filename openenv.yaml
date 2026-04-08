@@ -1,0 +1,13 @@
+name: soc-incident-response
+version: "1.0.0"
+author: "Purab Dansingani"
+description: "A real-world cybersecurity environment where an AI agent acts as a SOC analyst to triage, isolate, and mitigate an active server breach based on system logs."
+tags: ["cybersecurity", "soc", "log-analysis", "incident-response"]
+entrypoint: "environment:SOCEnv"
+tasks:
+  - id: "easy"
+    description: "Identify the compromised IP address from the auth logs."
+  - id: "medium"
+    description: "Identify the compromised IP, block it, and isolate the infected service."
+  - id: "hard"
+    description: "Trace lateral movement, isolate infected services, block the IP, and submit a firewall mitigation rule."

@@ -1,0 +1,22 @@
+# Virtual environments
+venv/
+.venv/
+source/
+__pycache__/
+*.pyc
+
+# Environment files
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# uv
+.python-version
+uv.lock
