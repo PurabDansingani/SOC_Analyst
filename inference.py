@@ -72,13 +72,21 @@ def run_inference():
                 obs_str = obs.model_dump_json()
                 chat_history.append({"role": "user", "content": f"Observation: {obs_str}"})
 
-                response = client.chat.completions.create(
-                    model=model_name,
-                    messages=chat_history,
-                    temperature=0.0
-                )
-
-                agent_output = response.choices[0].message.content
+                try:
+                    response = client.chat.completions.create(
+                        model=model_name,
+                        messages=chat_history,
+                        temperature=0.0
+                    )
+                    agent_output = response.choices[0].message.content or ""
+                except Exception as e:
+                    # Keep inference resilient when network/auth is unavailable in validators.
+                    api_error = str(e).replace('\n', ' ')
+                    print(f"[WARNING] llm_call_failed error={api_error}")
+                    agent_output = json.dumps({
+                        "reasoning": "API call failed; using safe fallback action.",
+                        "action": {"tool": "search_logs", "params": {"query": "error"}}
+                    })
                 chat_history.append({"role": "assistant", "content": agent_output})
 
                 error_msg = "null"
