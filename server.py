@@ -46,10 +46,11 @@ def health_check():
 
 
 @app.post("/reset", response_model=Observation)
-def reset(request: ResetRequest):
+def reset(request: Optional[ResetRequest] = None):
     """Reset the environment with a given task_id (easy, medium, hard)."""
     global current_task_description
-    obs = env.reset(request.task_id)
+    task_id = request.task_id if request else "easy"
+    obs = env.reset(task_id)
     current_task_description = obs.task_description
     return obs
 
