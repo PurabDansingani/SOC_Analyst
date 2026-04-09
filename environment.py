@@ -37,6 +37,16 @@ class SOCEnv:
         self.current_task = "easy"
         self._reset_state()
 
+    @staticmethod
+    def _clamp_score(score: float, min_score: float = 0.01, max_score: float = 0.99) -> float:
+        if score != score:  # NaN check
+            return min_score
+        if score <= min_score:
+            return min_score
+        if score >= max_score:
+            return max_score
+        return float(score)
+
     def _reset_state(self):
         self.tick = 0
         self.max_ticks = 15
@@ -196,7 +206,10 @@ class SOCEnv:
                 self.last_output = f"Service {service} isolated from the network."
 
         elif action.tool == "submit_report":
-            return self.state(), self._grade_task(action.params)
+            obs = self.state()
+            graded = self._grade_task(action.params)
+            graded.score = self._clamp_score(graded.score)
+            return obs, graded
 
         # Advance the simulation!
         self._simulate_tick()
@@ -207,9 +220,13 @@ class SOCEnv:
             reward.done = True
             reward.message = "Critical failure: Max time elapsed. Systems compromised."
             reward.success = False
-            return self.state(), reward
+            obs = self.state()
+            reward.score = self._clamp_score(reward.score)
+            return obs, reward
 
-        return self.state(), reward
+        obs = self.state()
+        reward.score = self._clamp_score(reward.score)
+        return obs, reward
 
     # --- GRADER ---
     def _grade_task(self, params: dict) -> Reward:
@@ -217,24 +234,24 @@ class SOCEnv:
         
         if self.current_task == "easy":
             if not self.active_threats["brute_force"]["active"] and reported_ip == "103.45.67.89":
-                return Reward(score=0.70, done=True, message="Success: Brute force stopped and identified.", success=True)
-            return Reward(score=0.25, done=True, message="Failed: Attack still active or wrong IP.", success=False)
+                return Reward(score=0.99, done=True, message="Success: Brute force stopped and identified.", success=True)
+            return Reward(score=0.2, done=True, message="Failed: Attack still active or wrong IP.", success=False)
             
         elif self.current_task == "medium":
             if not self.active_threats["ddos"]["active"] and self.servers["web_server"]["cpu"] < 50:
-                return Reward(score=0.70, done=True, message="Success: DDoS mitigated and server recovered.", success=True)
-            return Reward(score=0.30, done=True, message="Failed: Server still under load.", success=False)
+                return Reward(score=0.99, done=True, message="Success: DDoS mitigated and server recovered.", success=True)
+            return Reward(score=0.4, done=True, message="Failed: Server still under load.", success=False)
             
         elif self.current_task == "hard":
             if not self.active_threats["brute_force"]["active"] and not self.active_threats["ransomware"]["active"]:
                 # Check how many files were saved
                 saved_files = sum(1 for status in self.files.values() if status == "normal")
                 if saved_files == 3:
-                    return Reward(score=0.70, done=True, message="Perfect! All threats stopped before any data loss.", success=True)
+                    return Reward(score=0.99, done=True, message="Perfect! All threats stopped before any data loss.", success=True)
                 elif saved_files > 0:
-                    return Reward(score=0.50, done=True, message=f"Threats stopped, but {3-saved_files} files were encrypted.", success=True)
+                    return Reward(score=0.8, done=True, message=f"Threats stopped, but {3-saved_files} files were encrypted.", success=True)
                 else:
-                    return Reward(score=0.35, done=True, message="Threats stopped too late. All files lost.", success=True)
-            return Reward(score=0.15, done=True, message="Failed: Critical threats still active on network.", success=False)
+                    return Reward(score=0.5, done=True, message="Threats stopped too late. All files lost.", success=True)
+            return Reward(score=0.1, done=True, message="Failed: Critical threats still active on network.", success=False)
 
         return Reward(score=0.01, done=True, message="Unknown error.", success=False)
