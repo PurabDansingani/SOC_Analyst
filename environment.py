@@ -262,12 +262,12 @@ class SOCEnv:
         
         if self.current_task == "easy":
             if not self.active_threats["brute_force"]["active"] and reported_ip == "103.45.67.89":
-                return Reward(score=0.9, done=True, message="Success: Brute force stopped and identified.", success=True)
+                return Reward(score=0.8, done=True, message="Success: Brute force stopped and identified.", success=True)
             return Reward(score=0.2, done=True, message="Failed: Attack still active or wrong IP.", success=False)
             
         elif self.current_task == "medium":
             if not self.active_threats["ddos"]["active"] and self.servers["web_server"]["cpu"] < 50:
-                return Reward(score=0.9, done=True, message="Success: DDoS mitigated and server recovered.", success=True)
+                return Reward(score=0.8, done=True, message="Success: DDoS mitigated and server recovered.", success=True)
             return Reward(score=0.4, done=True, message="Failed: Server still under load.", success=False)
             
         elif self.current_task == "hard":
@@ -275,7 +275,7 @@ class SOCEnv:
                 # Check how many files were saved
                 saved_files = sum(1 for status in self.files.values() if status == "normal")
                 if saved_files == 3:
-                    return Reward(score=0.9, done=True, message="Perfect! All threats stopped before any data loss.", success=True)
+                    return Reward(score=0.8, done=True, message="Perfect! All threats stopped before any data loss.", success=True)
                 elif saved_files > 0:
                     return Reward(score=0.8, done=True, message=f"Threats stopped, but {3-saved_files} files were encrypted.", success=True)
                 else:
