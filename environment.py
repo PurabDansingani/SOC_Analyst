@@ -1,6 +1,6 @@
 import json
 from typing import Literal, Dict, Any, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # --- OpenEnv Spec Models ---
 
@@ -26,14 +26,22 @@ class Observation(BaseModel):
 class Reward(BaseModel):
     score: float = Field(
         ...,
-        gt=0.0,
-        lt=1.0,
         examples=[0.01],
         description="Step reward. Guaranteed to be strictly within (0, 1).",
     )
     done: bool
     message: str
     success: bool = False
+
+    @model_validator(mode="after")
+    def _clamp_score_to_open_interval(self):
+        """Auto-clamp score into (0, 1) so we never emit 0.0 or 1.0."""
+        EPS = 0.0001
+        s = self.score
+        if s != s:  # NaN guard
+            s = EPS
+        self.score = max(EPS, min(s, 1.0 - EPS))
+        return self
 
 
 # --- Stateful Simulation Engine ---
