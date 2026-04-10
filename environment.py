@@ -227,14 +227,10 @@ class SOCEnv:
         elif action.tool == "submit_report":
             obs = self.state()
             graded = self._grade_task(action.params)
-            final_total = self._clamp_final_score(graded.score)
-            # Ensure the telescoping delta stays strictly positive (>= 0.01).
-            final_total = max(final_total, self._episode_score_total + 0.01)
-            final_total = self._clamp_final_score(final_total)
-            # Telescoping reward: return only the delta to reach the final total.
-            delta = final_total - self._episode_score_total
-            self._episode_score_total = final_total
-            graded.score = self._clamp_step_score(delta)
+            # Return the absolute final task grade for submit_report.
+            # (Some validators expect score to be the terminal task score, not a delta.)
+            graded.score = self._clamp_step_score(graded.score)
+            reward = graded
             return obs, graded
 
         # Advance the simulation!
