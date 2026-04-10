@@ -38,7 +38,7 @@ class SOCEnv:
         self._reset_state()
 
     @staticmethod
-    def _clamp_final_score(score: float, eps: float = 1e-6) -> float:
+    def _clamp_final_score(score: float, eps: float = 0.01) -> float:
         if score != score:  # NaN check
             return eps
         # Ensure STRICTLY inside (0, 1)
@@ -55,6 +55,9 @@ class SOCEnv:
         # Track cumulative episode score so validators that SUM rewards
         # see a final task score strictly in (0, 1).
         self._episode_score_total = 0.0
+        # Emit a small strictly-positive per-step reward so *every* step score is in (0,1),
+        # while still keeping the episode sum in (0,1) via a telescoping final delta.
+        self._living_reward = 0.01
         
         # Simulated Infrastructure
         self.active_blocks = []
@@ -158,7 +161,7 @@ class SOCEnv:
     def step(self, action: Action) -> tuple[Observation, Reward]:
         # Important: validators commonly SUM all step rewards to compute the task score.
         # So we emit *incremental* rewards whose total equals the final grade.
-        reward = Reward(score=0.0, done=False, message="", success=False)
+        reward = Reward(score=self._living_reward, done=False, message="", success=False)
         
         # Execute Tool
         if action.tool == "search_logs":
@@ -214,22 +217,30 @@ class SOCEnv:
             obs = self.state()
             graded = self._grade_task(action.params)
             final_total = self._clamp_final_score(graded.score)
+            # Ensure the telescoping delta stays strictly positive (>= 0.01).
+            final_total = max(final_total, self._episode_score_total + 0.01)
+            final_total = self._clamp_final_score(final_total)
             # Telescoping reward: return only the delta to reach the final total.
             delta = final_total - self._episode_score_total
             self._episode_score_total = final_total
-            graded.score = delta
+            graded.score = self._clamp_final_score(delta)
             return obs, graded
 
         # Advance the simulation!
         self._simulate_tick()
+        # Accumulate the living reward for non-terminal steps.
+        self._episode_score_total += reward.score
 
         # Check timeout
         if self.tick >= self.max_ticks:
-            # End the episode with a small but valid final score strictly in (0, 1).
-            final_total = self._clamp_final_score(0.05)
+            # End the episode with a valid final score strictly in (0, 1),
+            # and ensure it's >= accumulated living rewards so delta stays positive.
+            final_total = self._clamp_final_score(0.2)
+            final_total = max(final_total, self._episode_score_total + 0.01)
+            final_total = self._clamp_final_score(final_total)
             delta = final_total - self._episode_score_total
             self._episode_score_total = final_total
-            reward.score = delta
+            reward.score = self._clamp_final_score(delta)
             reward.done = True
             reward.message = "Critical failure: Max time elapsed. Systems compromised."
             reward.success = False
