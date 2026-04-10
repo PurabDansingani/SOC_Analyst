@@ -56,9 +56,10 @@ def reset(request: Optional[ResetRequest] = None):
 
 
 @app.post("/step", response_model=StepResponse)
-def step(action: Action):
+def step(action: Optional[Action] = None):
     """Execute one action in the environment and return observation + reward."""
-    obs, reward = env.step(action)
+    safe_action = action or Action(tool="search_logs", params={"query": "auth"})
+    obs, reward = env.step(safe_action)
     return StepResponse(observation=obs, reward=reward)
 
 
