@@ -6,6 +6,7 @@ via the OpenEnv spec endpoints: reset(), step(), state().
 import os
 import uvicorn
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import Optional
 
@@ -56,11 +57,33 @@ def reset(request: Optional[ResetRequest] = None):
 
 
 @app.post("/step", response_model=StepResponse)
-def step(action: Optional[Action] = None):
+def step(action: Optional[dict] = None):
     """Execute one action in the environment and return observation + reward."""
-    safe_action = action or Action(tool="search_logs", params={"query": "auth"})
+    action = action or {}
+    tool = action.get("tool", "search_logs")
+    params = action.get("params", {"query": "auth"})
+    # Defensive fallback to avoid 422 in validators that send malformed bodies.
+    try:
+        safe_action = Action(tool=tool, params=params)
+    except Exception:
+        safe_action = Action(tool="search_logs", params={"query": "auth"})
     obs, reward = env.step(safe_action)
     return StepResponse(observation=obs, reward=reward)
+
+
+@app.get("/web", response_class=HTMLResponse)
+def web():
+    """Minimal web route for validators that probe /web."""
+    return """
+    <html>
+      <head><title>SOC Incident Response</title></head>
+      <body>
+        <h1>SOC Incident Response - OpenEnv</h1>
+        <p>Status: running</p>
+        <p>Use API endpoints: /reset, /step, /state, /docs</p>
+      </body>
+    </html>
+    """
 
 
 @app.get("/state", response_model=Observation)
