@@ -24,7 +24,13 @@ class Observation(BaseModel):
     task_description: str
 
 class Reward(BaseModel):
-    score: float
+    score: float = Field(
+        ...,
+        gt=0.0,
+        lt=1.0,
+        examples=[0.01],
+        description="Step reward. Guaranteed to be strictly within (0, 1).",
+    )
     done: bool
     message: str
     success: bool = False
