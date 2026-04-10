@@ -41,9 +41,8 @@ An enterprise network is under active attack. The AI agent must analyze telemetr
 
 ### Scoring
 
-- Each step costs `-0.05` (time pressure)
-- Correct actions earn `+0.25` to `+0.50`
-- Wrong actions (killing legitimate processes, blocking wrong IPs) penalize heavily
+- Each step emits a small reward in `(0, 1)` for validator compatibility.
+- The environment uses **telescoping rewards**: per-step rewards are structured so that the **sum of all rewards in an episode equals the final task grade** (also strictly in `(0, 1)`).
 - Final score on `submit_report` depends on threat mitigation status
 - Max 15 ticks before automatic failure
 
@@ -89,10 +88,10 @@ This runs the AI agent against all 3 tasks (easy, medium, hard) and outputs stru
 
 ```
 [START] task=easy env=SOCEnv model=gpt-4o-mini
-[STEP] step=1 action={"tool":"search_logs","params":{"query":"auth"}} reward=-0.05 done=false error=null
-[STEP] step=2 action={"tool":"block_ip","params":{"ip":"103.45.67.89"}} reward=0.45 done=false error=null
-[STEP] step=3 action={"tool":"submit_report","params":{"compromised_ip":"103.45.67.89"}} reward=0.45 done=true error=null
-[END] success=true steps=3 rewards=-0.05,0.45,0.45
+[STEP] step=1 action={"tool":"search_logs","params":{"query":"auth"}} reward=0.01 done=false error=null
+[STEP] step=2 action={"tool":"block_ip","params":{"ip":"103.45.67.89"}} reward=0.01 done=false error=null
+[STEP] step=3 action={"tool":"submit_report","params":{"compromised_ip":"103.45.67.89"}} reward=0.98 done=true error=null
+[END] success=true steps=3 rewards=0.01,0.01,0.98
 ```
 
 ### Interactive Spectator Mode
