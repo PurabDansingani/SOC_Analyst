@@ -48,6 +48,11 @@ class SOCEnv:
             return 1.0 - eps
         return float(score)
 
+    @classmethod
+    def _clamp_step_score(cls, score: float, eps: float = 0.01) -> float:
+        # Reuse the same strict (0,1) constraints for every emitted step reward.
+        return round(cls._clamp_final_score(score, eps=eps), 4)
+
     def _reset_state(self):
         self.tick = 0
         self.max_ticks = 15
@@ -161,7 +166,7 @@ class SOCEnv:
     def step(self, action: Action) -> tuple[Observation, Reward]:
         # Important: validators commonly SUM all step rewards to compute the task score.
         # So we emit *incremental* rewards whose total equals the final grade.
-        reward = Reward(score=self._living_reward, done=False, message="", success=False)
+        reward = Reward(score=self._clamp_step_score(self._living_reward), done=False, message="", success=False)
         
         # Execute Tool
         if action.tool == "search_logs":
@@ -223,13 +228,13 @@ class SOCEnv:
             # Telescoping reward: return only the delta to reach the final total.
             delta = final_total - self._episode_score_total
             self._episode_score_total = final_total
-            graded.score = self._clamp_final_score(delta)
+            graded.score = self._clamp_step_score(delta)
             return obs, graded
 
         # Advance the simulation!
         self._simulate_tick()
         # Accumulate the living reward for non-terminal steps.
-        self._episode_score_total += reward.score
+        self._episode_score_total = self._clamp_final_score(self._episode_score_total + reward.score)
 
         # Check timeout
         if self.tick >= self.max_ticks:
@@ -240,7 +245,7 @@ class SOCEnv:
             final_total = self._clamp_final_score(final_total)
             delta = final_total - self._episode_score_total
             self._episode_score_total = final_total
-            reward.score = self._clamp_final_score(delta)
+            reward.score = self._clamp_step_score(delta)
             reward.done = True
             reward.message = "Critical failure: Max time elapsed. Systems compromised."
             reward.success = False
@@ -248,6 +253,7 @@ class SOCEnv:
             return obs, reward
 
         obs = self.state()
+        reward.score = self._clamp_step_score(reward.score)
         return obs, reward
 
     # --- GRADER ---
