@@ -3,7 +3,7 @@ import os
 import json
 import re
 from openai import OpenAI
-
+import sys
 
 # Import the logic from our newly created file
 from environment import SOCEnv, Action
@@ -192,21 +192,25 @@ def run_inference():
             if not rewards_list:
                 # Keep validator-facing summary values strictly in (0,1)
                 rewards_list = [_strict_score(None)]
-            rewards_str = ",".join([f"{r:.2f}" for r in rewards_list])
-            total_reward = _strict_score(sum(rewards_list))
+            rewards_str = ",".join([f"{r:.4f}" for r in rewards_list])
+            # terminal reward, NOT sum
+            task_score = _strict_score(terminal_reward)
             safe_terminal_reward = _strict_score(terminal_reward)
             safe_min_reward = _strict_score(min(rewards_list))
             safe_max_reward = _strict_score(max(rewards_list))
-            task_score = safe_terminal_reward
+
             print(
-                f"[END] success={success_str} steps={len(rewards_list)} rewards={rewards_str}")
+                f"[END] success={success_str} steps={len(rewards_list)} rewards={rewards_str}", flush=True)
             print(
-                f"[SUMMARY] task={task} total_reward={total_reward:.4f} "
+                f"[SUMMARY] task={task} total_reward={task_score:.4f} "
                 f"terminal_reward={safe_terminal_reward:.4f} "
                 f"min_reward={safe_min_reward:.4f} "
-                f"max_reward={safe_max_reward:.4f}"
+                f"max_reward={safe_max_reward:.4f}",
+                flush=True
             )
-            print(f"[TASK_SCORE] task={task} score={task_score:.4f}")
+            print(
+                f"[TASK_SCORE] task={task} score={task_score:.4f}", flush=True)
+            sys.stdout.flush()
 
 
 if __name__ == "__main__":
