@@ -1,36 +1,27 @@
-"""
-Grader for the 'easy' task: Brute Force Triage.
-Called by the OpenEnv validator to compute a task score strictly in (0, 1).
-"""
-
 import sys
 import os
 
-# Ensure the project root is on the path so we can import environment.
+# Ensure project root is on path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from environment import SOCEnv
 
-from environment import SOCEnv, Action
+def _clamp(score: float) -> float:
+    # Use a wider margin (0.01) to stay safely away from 1.0 and 0.0
+    # to avoid precision errors in the validator's floating point check.
+    EPS = 0.01
+    if score != score: return EPS
+    return max(EPS, min(score, 1.0 - EPS))
 
-
-def _clamp(score: float, eps: float = 0.0001) -> float:
-    """Ensure the score is strictly inside (0, 1)."""
-    if score != score:  # NaN guard
-        return eps
-    return max(eps, min(score, 1.0 - eps))
-
-
-def grade(*args, **kwargs) -> float:
+def grade(env: SOCEnv, obs=None) -> float:
     """
-    Deterministic grader for the easy task.
-    Runs the environment with the known-correct policy and returns a score in (0, 1).
+    Grades the ACTUAL state of the provided environment.
     """
-    env = SOCEnv()
-    obs = env.reset("easy")
-
-    # Step 1: block the brute-force IP
-    obs, reward = env.step(Action(tool="block_ip", params={"ip": "103.45.67.89"}))
-
-    # Step 2: submit report
-    obs, reward = env.step(Action(tool="submit_report", params={"compromised_ip": "103.45.67.89"}))
-
-    return _clamp(reward.score)
+    # 1. Check if the specific threat for 'easy' is mitigated
+    is_mitigated = not env.active_threats["brute_force"]["active"]
+    
+    # 2. Return a fixed total score based on success/failure
+    # These values must be strictly between 0 and 1.
+    if is_mitigated:
+        return _clamp(0.85) 
+    
+    return _clamp(0.15)

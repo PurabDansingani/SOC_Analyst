@@ -1,39 +1,38 @@
-"""
-Grader for the 'hard' task: Full Incident Response.
-Called by the OpenEnv validator to compute a task score strictly in (0, 1).
-"""
-
 import sys
 import os
 
-# Ensure the project root is on the path so we can import environment.
+# Ensure project root is on path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from environment import SOCEnv
 
-from environment import SOCEnv, Action
+def _clamp(score: float) -> float:
+    """Keep the score strictly inside (0, 1) with a safe buffer."""
+    EPS = 0.01
+    if score != score: return EPS
+    return max(EPS, min(score, 1.0 - EPS))
 
-
-def _clamp(score: float, eps: float = 0.0001) -> float:
-    """Ensure the score is strictly inside (0, 1)."""
-    if score != score:  # NaN guard
-        return eps
-    return max(eps, min(score, 1.0 - eps))
-
-
-def grade(*args, **kwargs) -> float:
+def grade(env: SOCEnv, obs=None) -> float:
     """
-    Deterministic grader for the hard task.
-    Runs the environment with the known-correct policy and returns a score in (0, 1).
+    Grades the actual environment state for the full incident response task.
     """
-    env = SOCEnv()
-    obs = env.reset("hard")
-
-    # Step 1: kill the malware process immediately (before it encrypts files)
-    obs, reward = env.step(Action(tool="kill_process", params={"pid": "malware.exe (pid: 666)"}))
-
-    # Step 2: block the brute-force IP
-    obs, reward = env.step(Action(tool="block_ip", params={"ip": "103.45.67.89"}))
-
-    # Step 3: submit report
-    obs, reward = env.step(Action(tool="submit_report", params={"compromised_ip": "103.45.67.89"}))
-
-    return _clamp(reward.score)
+    # 1. Verify both critical threats are neutralized
+    brute_force_stopped = not env.active_threats["brute_force"]["active"]
+    malware_stopped = not env.active_threats["ransomware"]["active"]
+    
+    if brute_force_stopped and malware_stopped:
+        # 2. Calculate data integrity bonus (Variance signal)
+        # Check how many files remain 'normal' (not encrypted)
+        saved_files = sum(1 for status in env.files.values() if status == "normal")
+        
+        # Score ranges from 0.50 (all encrypted) to 0.95 (perfect save)
+        base_success = 0.50
+        file_bonus = saved_files * 0.15
+        
+        return _clamp(base_success + file_bonus)
+    
+    # Partial Failure: Only one of the threats was stopped
+    if brute_force_stopped or malware_stopped:
+        return _clamp(0.25)
+        
+    # Full Failure: Both threats still active
+    return _clamp(0.15)
