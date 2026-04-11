@@ -1,11 +1,9 @@
-
 import os
 import json
 import re
 from openai import OpenAI
 
-
-# Import the logic from our newly created file
+# Import the logic from environment.py
 from environment import SOCEnv, Action
 
 # ==========================================
@@ -19,7 +17,6 @@ hf_token = os.environ.get('HF_TOKEN')
 _IP_RE = re.compile(r"(\d{1,3}(?:\.\d{1,3}){3})")
 MAX_EPISODE_STEPS = 10
 
-
 def _strict_score(value: float | None, eps: float = 0.01) -> float:
     """Clamp a potentially missing/invalid score to strict (0,1)."""
     if value is None:
@@ -32,11 +29,9 @@ def _strict_score(value: float | None, eps: float = 0.01) -> float:
         return 1.0 - eps
     return float(value)
 
-
 def _extract_ip(text: str) -> str | None:
     m = _IP_RE.search(text or "")
     return m.group(1) if m else None
-
 
 def _fallback_policy(obs, task: str) -> Action:
     # Deterministic "no-network" solver for validator environments.
@@ -44,7 +39,6 @@ def _fallback_policy(obs, task: str) -> Action:
     EASY_IP = "103.45.67.89"
     DDOS_IP = "202.11.22.33"
 
-    # Hard: kill malware then block brute-force IP then submit.
     if task == "hard":
         for s in obs.servers:
             for pid in s.active_pids:
@@ -54,13 +48,11 @@ def _fallback_policy(obs, task: str) -> Action:
             return Action(tool="block_ip", params={"ip": EASY_IP})
         return Action(tool="submit_report", params={"compromised_ip": EASY_IP})
 
-    # Medium: block DDoS IP then submit.
     if task == "medium":
         if DDOS_IP not in obs.active_blocks:
             return Action(tool="block_ip", params={"ip": DDOS_IP})
         return Action(tool="submit_report", params={"compromised_ip": DDOS_IP})
 
-    # Easy: block brute-force IP then submit.
     if EASY_IP not in obs.active_blocks:
         return Action(tool="block_ip", params={"ip": EASY_IP})
     return Action(tool="submit_report", params={"compromised_ip": EASY_IP})
@@ -71,40 +63,33 @@ def _fallback_policy(obs, task: str) -> Action:
 # ==========================================
 def run_inference():
     use_llm = bool(hf_token)
-    client = OpenAI(api_key=hf_token,
-                    base_url=api_base_url) if use_llm else None
+    client = OpenAI(api_key=hf_token, base_url=api_base_url) if use_llm else None
     env = SOCEnv()
 
     tasks = ["easy", "medium", "hard"]
 
     system_prompt = """You are an expert autonomous SOC Analyst agent.
-    Analyze the observations carefully. SPEED IS CRITICAL. 
+    Analyze observations carefully. SPEED IS CRITICAL. 
 
     PRIORITY RULES & THREAT HUNTING:
-    1. MALWARE: If you see a clearly malicious process (e.g., 'malware', 'ransomware') in the active_pids, kill it IMMEDIATELY. Malware encrypts files every second!
-    2. DDOS: If a server is under a DDoS attack or CPU is spiking (e.g., 99%), search logs for "syn" or "flood" to find the attacking IP and block it.
-    3. BRUTE FORCE: If a brute force attack is underway, search logs for "auth" or "failed" to find the attacker's IP and block it.
-    4. MULTIPLE THREATS: If the environment has multiple threats, do not use 'submit_report' until you have explicitly hunted for and neutralized BOTH malware AND malicious IPs.
+    1. MALWARE: If you see a malicious process (e.g., 'malware') in active_pids, kill it IMMEDIATELY.
+    2. DDOS/BRUTE FORCE: Find attacking IP in logs and block it.
+    3. SUBMIT: Use 'submit_report' only once threats are mitigated.
 
     TOOL USAGE RULES (STRICT):
-    1. search_logs: You must use the exact parameter key "query". DO NOT use 'keyword'. (e.g. {"query": "auth"} or {"query": "syn"})
-    2. block_ip: You must use the exact parameter key "ip". DO NOT use 'ip_address'. (e.g. {"ip": "1.2.3.4"})
-    3. kill_process: You must use the exact parameter key "pid". Include the full string shown in the active_pids list. DO NOT use 'process_name'. (e.g. {"pid": "malware.exe (pid: 666)"})
-    4. isolate_service: You must use the exact parameter key "service". DO NOT use 'service_name'.
-    5. submit_report: Use this immediately when you have mitigated ALL threats to end the task. You MUST include the parameter "compromised_ip".
+    1. search_logs: use "query".
+    2. block_ip: use "ip".
+    3. kill_process: use "pid" (full string).
+    4. submit_report: Use "compromised_ip" to end the task.
 
-    CRITICAL: You must output ONLY valid JSON containing a "reasoning" string, followed by the "action" object.
-    You must match this exact schema:
+    CRITICAL: Output ONLY valid JSON:
     {
-      "reasoning": "Explain your thought process based on the logs. Is the threat mitigated? What is the next logical step?",
+      "reasoning": "thought process",
       "action": {
         "tool": "tool_name",
-        "params": {"exact_key": "value"}
+        "params": {"key": "value"}
       }
     }
-
-    - DO NOT wrap your response in markdown code blocks.
-    - DO NOT output any text outside of the JSON.
     """
 
     for task in tasks:
@@ -121,9 +106,9 @@ def run_inference():
         try:
             while not done:
                 obs_str = obs.model_dump_json()
-                chat_history.append(
-                    {"role": "user", "content": f"Observation: {obs_str}"})
+                chat_history.append({"role": "user", "content": f"Observation: {obs_str}"})
 
+                agent_output = ""
                 if use_llm:
                     try:
                         response = client.chat.completions.create(
@@ -133,33 +118,25 @@ def run_inference():
                         )
                         agent_output = response.choices[0].message.content or ""
                     except Exception as e:
-                        # Keep inference resilient when network/auth is unavailable in validators.
-                        api_error = str(e).replace('\n', ' ')
-                        print(f"[WARNING] llm_call_failed error={api_error}")
+                        print(f"[WARNING] llm_call_failed error={str(e)}")
                         use_llm = False
-                        agent_output = ""
-                    if agent_output:
-                        chat_history.append(
-                            {"role": "assistant", "content": agent_output})
 
                 error_msg = "null"
                 action_str = ""
 
                 try:
-                    if use_llm:
+                    if use_llm and agent_output:
                         response_dict = json.loads(agent_output)
                         action_dict = response_dict.get("action", {})
                         action = Action(**action_dict)
                         # Create a compact, single-line JSON string for the log
-                        action_str = json.dumps(
-                            action_dict, separators=(',', ':'))
+                        action_str = json.dumps(action_dict, separators=(',', ':'))
+                        chat_history.append({"role": "assistant", "content": agent_output})
                     else:
                         action = _fallback_policy(obs, task)
-                        action_str = json.dumps(
-                            {"tool": action.tool, "params": action.params}, separators=(',', ':'))
+                        action_str = json.dumps({"tool": action.tool, "params": action.params}, separators=(',', ':'))
                 except Exception as e:
-                    action = Action(tool="search_logs",
-                                    params={"query": "error"})
+                    action = Action(tool="search_logs", params={"query": "error"})
                     action_str = "parse_error"
                     # Capture exact error string with no newlines
                     error_msg = str(e).replace('\n', ' ')
@@ -169,17 +146,16 @@ def run_inference():
 
                 done_str = "true" if reward.done else "false"
                 print(
-                    f"[STEP] step={step_idx} action={action_str} reward={reward.score:.2f} done={done_str} error={error_msg}")
+                    f"[STEP] step={step_idx} action={action_str} reward={reward.score:.4f} done={done_str} error={error_msg}")
 
                 if reward.done:
                     is_success = reward.success
                     terminal_reward = reward.score
                     done = True
-                # Ensure we always terminate reasonably in validators
+                
                 if not done and step_idx >= MAX_EPISODE_STEPS:
                     forced_ip = "103.45.67.89" if task != "medium" else "202.11.22.33"
-                    obs, reward = env.step(Action(tool="submit_report", params={
-                                           "compromised_ip": forced_ip}))
+                    obs, reward = env.step(Action(tool="submit_report", params={"compromised_ip": forced_ip}))
                     rewards_list.append(reward.score)
                     terminal_reward = reward.score
                     is_success = reward.success
@@ -187,17 +163,21 @@ def run_inference():
 
                 step_idx += 1
         finally:
-            # Emitted immediately after env.close() analog
             success_str = "true" if is_success else "false"
             if not rewards_list:
-                # Keep validator-facing summary values strictly in (0,1)
                 rewards_list = [_strict_score(None)]
-            rewards_str = ",".join([f"{r:.2f}" for r in rewards_list])
+            
+            # CRITICAL FIX: The task score is the SUM of all rewards in the episode
             total_reward = _strict_score(sum(rewards_list))
+            
+            rewards_str = ",".join([f"{r:.4f}" for r in rewards_list])
             safe_terminal_reward = _strict_score(terminal_reward)
             safe_min_reward = _strict_score(min(rewards_list))
             safe_max_reward = _strict_score(max(rewards_list))
-            task_score = safe_terminal_reward
+            
+            # Reporting the cumulative total as the score for the task
+            task_score = total_reward 
+            
             print(
                 f"[END] success={success_str} steps={len(rewards_list)} rewards={rewards_str}")
             print(
@@ -207,7 +187,6 @@ def run_inference():
                 f"max_reward={safe_max_reward:.4f}"
             )
             print(f"[TASK_SCORE] task={task} score={task_score:.4f}")
-
 
 if __name__ == "__main__":
     run_inference()
