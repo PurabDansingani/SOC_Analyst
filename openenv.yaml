@@ -1,22 +1,22 @@
 name: soc-incident-response
 version: "1.0.0"
-author: "Purab Dansingani"
-description: "A real-world cybersecurity environment where an AI agent acts as a SOC analyst to triage, isolate, and mitigate an active server breach based on system logs."
-tags: ["cybersecurity", "soc", "log-analysis", "incident-response"]
+author: "Aryan Rajendra Dalvi"
+description: "A cybersecurity SOC analyst simulation for triaging and mitigating server breaches."
+tags: ["cybersecurity", "soc", "incident-response"]
 entrypoint: "environment:SOCEnv"
 tasks:
   - id: "easy"
     name: "Brute Force Triage"
-    description: "Identify the compromised IP address from the auth logs."
+    description: "Identify attacking IP from auth logs and block it using block_ip."
     difficulty: "easy"
     grader: "tasks.easy.grader:grade"
   - id: "medium"
     name: "DDoS Mitigation"
-    description: "Identify the compromised IP, block it, and isolate the infected service."
+    description: "Detect high CPU usage caused by a DDoS, block malicious IP, and restore service."
     difficulty: "medium"
     grader: "tasks.medium.grader:grade"
   - id: "hard"
     name: "Full Incident Response"
-    description: "Trace lateral movement, isolate infected services, block the IP, and submit a firewall mitigation rule."
+    description: "Stop a brute force attack and kill a ransomware process on database server before files are encrypted."
     difficulty: "hard"
     grader: "tasks.hard.grader:grade"

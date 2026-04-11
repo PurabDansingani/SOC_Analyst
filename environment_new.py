@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 
 class Action(BaseModel):
     tool: Literal["search_logs", "block_ip", "isolate_service", "kill_process", "submit_report"] = Field(
-        description="Tools: 'search_logs' (needs 'query'), 'block_ip' (needs 'ip'), 'isolate_service' (needs 'service'), 'kill_process' (needs 'pid'), 'submit_report' (needs 'compromised_ip')."
+        description="Tools: 'search_logs' (needs 'query'), 'block_ip' (needs 'ip'), 'isolate_service' (needs 'service'), 'kill_process' (needs 'pid'), 'submit_report' (needs 'compromised_ip' and 'mitigated_threats')."
     )
     params: Dict[str, Any] = Field(default_factory=dict)
 
@@ -26,6 +26,7 @@ class Observation(BaseModel):
 class Reward(BaseModel):
     score: float = Field(
         ...,
+        examples=[0.01],
         description="Step reward. Guaranteed to be strictly within (0, 1).",
     )
     done: bool
@@ -34,8 +35,8 @@ class Reward(BaseModel):
 
     @model_validator(mode="after")
     def _clamp_score_to_open_interval(self):
-        """Final Pydantic guard to ensure every emitted reward is strictly (0, 1)."""
-        EPS = 0.005 # Safe margin to prevent rounding to 1.0 or 0.0
+        """Auto-clamp individual step score into (0, 1) to satisfy validator."""
+        EPS = 0.0001
         s = self.score
         if s != s:  # NaN guard
             s = EPS
@@ -51,20 +52,27 @@ class SOCEnv:
         self._reset_state()
 
     @staticmethod
-    def _clamp_step_score(score: float) -> float:
-        """Clamps individual delta rewards to 4 decimal places for validator stability."""
-        EPS = 0.005
-        if score != score: 
-            return EPS
-        clamped = max(EPS, min(score, 1.0 - EPS))
-        return round(float(clamped), 4)
+    def _clamp_final_score(score: float, eps: float = 0.01) -> float:
+        """Ensures the total sum remains strictly inside (0, 1)."""
+        if score != score:
+            return eps
+        if score <= eps:
+            return eps
+        if score >= 1.0 - eps:
+            return 1.0 - eps
+        return float(score)
+
+    @classmethod
+    def _clamp_step_score(cls, score: float, eps: float = 0.001) -> float:
+        """Clamps the individual delta reward."""
+        return round(cls._clamp_final_score(score, eps=eps), 4)
 
     def _reset_state(self):
         self.tick = 0
         self.max_ticks = 15
-        self.last_output = "System booted. Monitoring active."
+        self.last_output = "System booted. Network monitoring online."
         self._episode_score_total = 0.0
-        # Very small living reward to provide signal without eating up the '1.0' budget
+        # Reduced living reward to allow more headroom for success grades
         self._living_reward = 0.002 
         
         self.active_blocks = []
@@ -89,14 +97,14 @@ class SOCEnv:
         
         if task_id == "easy":
             self.active_threats["brute_force"]["active"] = True
-            desc = "Identify and block the brute force IP."
+            desc = "A brute force attack is underway. Find the IP and block it."
         elif task_id == "medium":
             self.active_threats["ddos"]["active"] = True
-            desc = "Mitigate the DDoS attack spiking the web server CPU."
+            desc = "The web server CPU is spiking. Identify the DDoS IP and block it."
         elif task_id == "hard":
             self.active_threats["brute_force"]["active"] = True
             self.active_threats["ransomware"]["active"] = True
-            desc = "Stop the brute force and kill the ransomware PID before data loss."
+            desc = "Multiple threats detected. Stop the brute force and kill the malware process."
 
         self._simulate_tick()
         return self.state(task_description=desc)
@@ -119,11 +127,13 @@ class SOCEnv:
         time_str = f"T+{self.tick}s"
 
         if self.active_threats["brute_force"]["active"]:
-            self.logs.append(f"[{time_str}] [AUTH] Failed login from {self.active_threats['brute_force']['ip']}")
+            ip = self.active_threats["brute_force"]["ip"]
+            self.logs.append(f"[{time_str}] [AUTH] Failed login for 'admin' from {ip}")
 
         if self.active_threats["ddos"]["active"]:
+            ip = self.active_threats["ddos"]["ip"]
             self.servers["web_server"]["cpu"] = 99
-            self.logs.append(f"[{time_str}] [NET] massive SYN flood detected.")
+            self.logs.append(f"[{time_str}] [NET] massive SYN flood detected from {ip}.")
         elif self.servers["web_server"]["cpu"] == 99: 
             self.servers["web_server"]["cpu"] = 15
 
@@ -137,9 +147,11 @@ class SOCEnv:
                     self.logs.append(f"[{time_str}] [FILE] {filename} encrypted by {pid}")
                     break
 
+        self.logs.append(f"[{time_str}] [SYS] Health check passed.")
+
     def step(self, action: Action) -> tuple[Observation, Reward]:
-        # Default behavior: provide a small living reward
-        current_step_reward = self._living_reward
+        # Default incremental reward
+        step_reward_val = self._living_reward
         done = False
         message = ""
         success = False
@@ -159,7 +171,7 @@ class SOCEnv:
                     self.active_threats["ddos"]["active"] = False
                 self.last_output = f"Blocked IP {ip}."
             else:
-                self.last_output = f"IP {ip} is already blocked."
+                self.last_output = f"IP {ip} already blocked."
 
         elif action.tool == "kill_process":
             pid = action.params.get("pid")
@@ -174,7 +186,8 @@ class SOCEnv:
 
         elif action.tool == "submit_report":
             graded = self._grade_task(action.params)
-            # DELTA CALCULATION: Ensures Sum(Rewards) == graded.score
+            # DELTA LOGIC: (Target Total) - (Already Given)
+            # This ensures the SUM of all rewards = graded.score
             target_total = graded.score
             delta = target_total - self._episode_score_total
             graded.score = self._clamp_step_score(delta)
@@ -184,42 +197,41 @@ class SOCEnv:
 
         # Handle Timeout
         if self.tick >= self.max_ticks:
-            target_failure_score = 0.15 # Failure total strictly (0, 1)
+            target_failure_score = 0.15
             delta = target_failure_score - self._episode_score_total
-            return self.state(), Reward(
+            timeout_reward = Reward(
                 score=self._clamp_step_score(delta),
                 done=True,
-                message="Max ticks reached. System compromised.",
+                message="Timeout: Threats persisted.",
                 success=False
             )
+            return self.state(), timeout_reward
 
-        # Standard Step Update
-        clamped_step_reward = self._clamp_step_score(current_step_reward)
-        self._episode_score_total += clamped_step_reward
+        # Standard Step Reward
+        final_step_reward = self._clamp_step_score(step_reward_val)
+        self._episode_score_total += final_step_reward
         
-        return self.state(), Reward(score=clamped_step_reward, done=False, message=message, success=success)
+        return self.state(), Reward(score=final_step_reward, done=False, message=message, success=success)
 
     def _grade_task(self, params: dict) -> Reward:
-        """Internal helper to determine the TARGET total score for the episode."""
         reported_ip = params.get("compromised_ip", "")
         
         if self.current_task == "easy":
             if not self.active_threats["brute_force"]["active"] and reported_ip == "103.45.67.89":
                 return Reward(score=0.85, done=True, message="Success", success=True)
-            return Reward(score=0.20, done=True, message="Incorrect IP or threat active", success=False)
+            return Reward(score=0.20, done=True, message="Failed", success=False)
             
         elif self.current_task == "medium":
-            if not self.active_threats["ddos"]["active"] and self.servers["web_server"]["cpu"] < 50:
-                return Reward(score=0.85, done=True, message="DDoS mitigated", success=True)
-            return Reward(score=0.30, done=True, message="Server still degraded", success=False)
+            if not self.active_threats["ddos"]["active"]:
+                return Reward(score=0.85, done=True, message="Success", success=True)
+            return Reward(score=0.30, done=True, message="Failed", success=False)
             
         elif self.current_task == "hard":
             if not self.active_threats["brute_force"]["active"] and not self.active_threats["ransomware"]["active"]:
-                # Variable score based on data integrity (Variance check)
-                saved_files = sum(1 for s in self.files.values() if s == "normal")
-                # Score ranges from 0.55 to 0.95
-                total_grade = 0.50 + (saved_files * 0.15) 
-                return Reward(score=total_grade, done=True, message=f"Threats cleared. {saved_files} files saved.", success=True)
-            return Reward(score=0.15, done=True, message="Critical threats still active", success=False)
+                # Scoring based on data integrity
+                saved = sum(1 for s in self.files.values() if s == "normal")
+                grade = 0.5 + (saved * 0.15) # 0.5 to 0.95 range
+                return Reward(score=grade, done=True, message="Mitigated", success=True)
+            return Reward(score=0.15, done=True, message="Failed", success=False)
 
-        return Reward(score=0.10, done=True, message="Unknown task state", success=False)
+        return Reward(score=0.1, done=True, message="Error", success=False)

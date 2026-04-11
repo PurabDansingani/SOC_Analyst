@@ -1,9 +1,10 @@
-from environment import SOCEnv, Action
-import sys
 import os
 import json
 import re
 from openai import OpenAI
+
+# Import the logic from environment.py
+from environment import SOCEnv, Action
 
 # ==========================================
 # 1. SETUP — Uses mandatory competition env vars
@@ -15,7 +16,6 @@ hf_token = os.environ.get('HF_TOKEN')
 # --- Fallback agent (no network required) ---
 _IP_RE = re.compile(r"(\d{1,3}(?:\.\d{1,3}){3})")
 MAX_EPISODE_STEPS = 10
-
 
 def _strict_score(value: float | None, eps: float = 0.01) -> float:
     """Clamp a potentially missing/invalid score to strict (0,1)."""
@@ -29,11 +29,9 @@ def _strict_score(value: float | None, eps: float = 0.01) -> float:
         return 1.0 - eps
     return float(value)
 
-
 def _extract_ip(text: str) -> str | None:
     m = _IP_RE.search(text or "")
     return m.group(1) if m else None
-
 
 def _fallback_policy(obs, task: str) -> Action:
     # Deterministic "no-network" solver for validator environments.
@@ -65,8 +63,7 @@ def _fallback_policy(obs, task: str) -> Action:
 # ==========================================
 def run_inference():
     use_llm = bool(hf_token)
-    client = OpenAI(api_key=hf_token,
-                    base_url=api_base_url) if use_llm else None
+    client = OpenAI(api_key=hf_token, base_url=api_base_url) if use_llm else None
     env = SOCEnv()
 
     tasks = ["easy", "medium", "hard"]
@@ -109,8 +106,7 @@ def run_inference():
         try:
             while not done:
                 obs_str = obs.model_dump_json()
-                chat_history.append(
-                    {"role": "user", "content": f"Observation: {obs_str}"})
+                chat_history.append({"role": "user", "content": f"Observation: {obs_str}"})
 
                 agent_output = ""
                 if use_llm:
@@ -134,17 +130,13 @@ def run_inference():
                         action_dict = response_dict.get("action", {})
                         action = Action(**action_dict)
                         # Create a compact, single-line JSON string for the log
-                        action_str = json.dumps(
-                            action_dict, separators=(',', ':'))
-                        chat_history.append(
-                            {"role": "assistant", "content": agent_output})
+                        action_str = json.dumps(action_dict, separators=(',', ':'))
+                        chat_history.append({"role": "assistant", "content": agent_output})
                     else:
                         action = _fallback_policy(obs, task)
-                        action_str = json.dumps(
-                            {"tool": action.tool, "params": action.params}, separators=(',', ':'))
+                        action_str = json.dumps({"tool": action.tool, "params": action.params}, separators=(',', ':'))
                 except Exception as e:
-                    action = Action(tool="search_logs",
-                                    params={"query": "error"})
+                    action = Action(tool="search_logs", params={"query": "error"})
                     action_str = "parse_error"
                     # Capture exact error string with no newlines
                     error_msg = str(e).replace('\n', ' ')
@@ -160,11 +152,10 @@ def run_inference():
                     is_success = reward.success
                     terminal_reward = reward.score
                     done = True
-
+                
                 if not done and step_idx >= MAX_EPISODE_STEPS:
                     forced_ip = "103.45.67.89" if task != "medium" else "202.11.22.33"
-                    obs, reward = env.step(Action(tool="submit_report", params={
-                                           "compromised_ip": forced_ip}))
+                    obs, reward = env.step(Action(tool="submit_report", params={"compromised_ip": forced_ip}))
                     rewards_list.append(reward.score)
                     terminal_reward = reward.score
                     is_success = reward.success
@@ -175,26 +166,27 @@ def run_inference():
             success_str = "true" if is_success else "false"
             if not rewards_list:
                 rewards_list = [_strict_score(None)]
+            
+            # CRITICAL FIX: The task score is the SUM of all rewards in the episode
+            total_reward = _strict_score(sum(rewards_list))
+            
             rewards_str = ",".join([f"{r:.4f}" for r in rewards_list])
-            # terminal reward, NOT sum
-            task_score = _strict_score(terminal_reward)
             safe_terminal_reward = _strict_score(terminal_reward)
             safe_min_reward = _strict_score(min(rewards_list))
             safe_max_reward = _strict_score(max(rewards_list))
-
+            
+            # Reporting the cumulative total as the score for the task
+            task_score = total_reward 
+            
             print(
-                f"[END] success={success_str} steps={len(rewards_list)} rewards={rewards_str}", flush=True)
+                f"[END] success={success_str} steps={len(rewards_list)} rewards={rewards_str}")
             print(
-                f"[SUMMARY] task={task} total_reward={task_score:.4f} "
+                f"[SUMMARY] task={task} total_reward={total_reward:.4f} "
                 f"terminal_reward={safe_terminal_reward:.4f} "
                 f"min_reward={safe_min_reward:.4f} "
-                f"max_reward={safe_max_reward:.4f}",
-                flush=True
+                f"max_reward={safe_max_reward:.4f}"
             )
-            print(
-                f"[TASK_SCORE] task={task} score={task_score:.4f}", flush=True)
-            sys.stdout.flush()
-
+            print(f"[TASK_SCORE] task={task} score={task_score:.4f}")
 
 if __name__ == "__main__":
     run_inference()
