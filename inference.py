@@ -18,17 +18,14 @@ _IP_RE = re.compile(r"(\d{1,3}(?:\.\d{1,3}){3})")
 MAX_EPISODE_STEPS = 10
 
 
-def _strict_score(value: float | None, eps: float = 0.01) -> float:
-    """Clamp a potentially missing/invalid score to strict (0,1)."""
+def _strict_score(value: float | None) -> float:
+    """Snap totals to {0.0, 0.1, …, 1.0} for logging consistency with the env."""
     if value is None:
-        return eps
-    if value != value:  # NaN check
-        return eps
-    if value <= eps:
-        return eps
-    if value >= 1.0 - eps:
-        return 1.0 - eps
-    return float(value)
+        return 0.0
+    if value != value:  # NaN
+        return 0.0
+    v = max(0.0, min(1.0, float(value)))
+    return round(v, 1)
 
 
 def log_start(task: str, env: str, model: str) -> None:

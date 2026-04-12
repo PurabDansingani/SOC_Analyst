@@ -40,9 +40,13 @@ def main():
         env_medium = SOCEnv()
         env_hard = SOCEnv()
         
+        env_easy.reset("easy")
+        env_medium.reset("medium")
+        env_hard.reset("hard")
         scores = [easy_grade(env_easy), medium_grade(env_medium), hard_grade(env_hard)]
         for i, (task, score) in enumerate(zip(['easy', 'medium', 'hard'], scores)):
-            valid = 0.0 < score < 1.0
+            on_grid = abs(round(score, 1) - score) < 1e-6
+            valid = 0.0 <= score <= 1.0 and on_grid
             print(f'   {task}: {score:.6f} - {"VALID" if valid else "INVALID"}')
     except Exception as e:
         print(f'   ERROR: {e}')

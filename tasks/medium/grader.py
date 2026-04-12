@@ -1,12 +1,4 @@
-from environment import SOCEnv
-
-
-def _clamp(score: float) -> float:
-    """Keep the score strictly inside (0, 1) with a safe buffer."""
-    EPS = 0.01
-    if score != score:
-        return EPS
-    return max(EPS, min(score, 1.0 - EPS))
+from environment import SOCEnv, snap_score_tenths
 
 
 def grade(env: SOCEnv, obs=None) -> float:
@@ -22,11 +14,11 @@ def grade(env: SOCEnv, obs=None) -> float:
 
     # Success: Threat stopped AND CPU recovered
     if threat_mitigated and cpu_recovered:
-        return _clamp(0.85)
+        return snap_score_tenths(0.9)
 
     # Partial Success: Threat blocked but CPU still high
     if threat_mitigated:
-        return _clamp(0.50)
+        return snap_score_tenths(0.5)
 
     # Failure: DDoS still active
-    return _clamp(0.30)
+    return snap_score_tenths(0.3)

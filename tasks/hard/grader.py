@@ -1,12 +1,4 @@
-from environment import SOCEnv
-
-
-def _clamp(score: float) -> float:
-    """Keep the score strictly inside (0, 1) with a safe buffer."""
-    EPS = 0.01
-    if score != score:
-        return EPS
-    return max(EPS, min(score, 1.0 - EPS))
+from environment import SOCEnv, snap_score_tenths
 
 
 def grade(env: SOCEnv, obs=None) -> float:
@@ -23,15 +15,14 @@ def grade(env: SOCEnv, obs=None) -> float:
         saved_files = sum(1 for status in env.files.values()
                           if status == "normal")
 
-        # Score ranges from 0.50 (all encrypted) to 0.95 (perfect save)
-        base_success = 0.50
+        base_success = 0.5
         file_bonus = saved_files * 0.15
 
-        return _clamp(base_success + file_bonus)
+        return snap_score_tenths(base_success + file_bonus)
 
     # Partial Failure: Only one of the threats was stopped
     if brute_force_stopped or malware_stopped:
-        return _clamp(0.25)
+        return snap_score_tenths(0.3)
 
     # Full Failure: Both threats still active
-    return _clamp(0.15)
+    return snap_score_tenths(0.2)
